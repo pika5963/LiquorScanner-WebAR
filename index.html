@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>LiquorScanner WebAR - サイバーパンクお酒識別</title>
+  
+  <!-- PWA Meta Tags -->
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="LiquorAR">
+  <meta name="theme-color" content="#00ff66">
+  
+  <!-- PWA Assets -->
+  <link rel="apple-touch-icon" href="assets/icon-192.png">
+  <link rel="manifest" href="manifest.json">
+  
+  <!-- Tailwind/CSS Files -->
+  <link rel="stylesheet" href="styles.css">
+  
+  <!-- A-Frame CDN -->
+  <script src="https://aframe.io/releases/1.4.2/aframe.min.js"></script>
+</head>
+<body>
+
+  <!-- Fullscreen Camera Preview Container -->
+  <div id="camera-container">
+    <video id="camera-stream" autoplay playsinline muted></video>
+    
+    <!-- Hidden Canvas for frame capturing -->
+    <canvas id="capture-canvas" style="display: none;"></canvas>
+  </div>
+
+  <!-- A-Frame Layer for future 3D/AR overlays (Transparent overlay) -->
+  <a-scene embedded vr-mode-ui="enabled: false" device-orientation-permission-ui="enabled: false"
+           style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 5; pointer-events: none;">
+    <a-camera position="0 0 0" look-controls="enabled: false;"></a-camera>
+    <!-- Future extension for 3D highlights / UI panels can be added here -->
+  </a-scene>
+
+  <!-- HUD Interface Layer -->
+  <div id="hud-container">
+    
+    <!-- HUD Header -->
+    <header class="hud-header">
+      <div class="hud-title">SYS_SCAN_V1.4</div>
+      <div style="display: flex; gap: 8px; align-items: center; pointer-events: auto;">
+        <!-- API Setup Button -->
+        <button id="api-setup-trigger" class="api-setup-btn" title="APIキー設定">⚙️</button>
+        <!-- Safeguard Usage Counter -->
+        <div class="hud-counter-panel" id="counter-panel">
+          <span style="font-size: 0.6rem; color: var(--text-secondary);">DAILY REQUESTS</span>
+          <div><span id="scan-count-val" class="counter-value">0</span> / <span style="color: var(--text-secondary);">30</span></div>
+        </div>
+      </div>
+    </header>
+
+    <!-- HUD Central Reticle (Scanner) -->
+    <div class="hud-scanner" id="scanner-hud">
+      <div class="scanner-corner top-left"></div>
+      <div class="scanner-corner top-right"></div>
+      <div class="scanner-corner bottom-left"></div>
+      <div class="scanner-corner bottom-right"></div>
+      <div class="scanner-reticle"></div>
+      <div class="scanner-laser"></div>
+    </div>
+
+    <!-- HUD Footer (Controls) -->
+    <footer class="hud-footer">
+      <div class="scan-button-wrapper">
+        <div class="loading-ring" id="btn-loading-ring"></div>
+        <button class="scan-button" id="shutter-button" aria-label="スキャン実行">
+          <!-- Circular inner visual for cyber shutter -->
+          <div style="width: 24px; height: 24px; border: 2px solid #fff; border-radius: 50%;"></div>
+        </button>
+      </div>
+    </footer>
+
+  </div>
+
+  <!-- AR Floating Info Card (Bottom Slide-in) -->
+  <div id="ar-card">
+    <button class="card-close-btn" id="card-close" aria-label="閉じる">&times;</button>
+    <div class="card-label">Detected Object info</div>
+    <h2 class="card-title" id="detected-name">識別中...</h2>
+    
+    <div class="card-meta-grid">
+      <div class="meta-item">
+        <div class="meta-title">Confidence (確信度)</div>
+        <div class="meta-value" id="detected-confidence">0.00%</div>
+      </div>
+      <div class="meta-item">
+        <div class="meta-title">Scan Index (本日のスキャン)</div>
+        <div class="meta-value" id="card-scan-index">#00</div>
+      </div>
+    </div>
+
+    <div style="margin-top: 8px;">
+      <div class="meta-title" style="margin-bottom: 6px;">Web References (類似のウェブ情報)</div>
+      <div class="web-links-container" id="web-links">
+        <!-- Dynamically populated Web Detection URLs -->
+        <span style="color: var(--text-secondary); font-size: 0.8rem;">No references found.</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Safe Guard Limit Warning Modal -->
+  <div class="modal-overlay" id="warning-modal">
+    <div class="cyber-modal">
+      <div class="modal-icon">⚠️</div>
+      <h3 class="modal-title">ACCESS DENIED</h3>
+      <p class="modal-desc">
+        本日のAPI通信リクエスト制限（30回）に達しました。<br>
+        課金を防止するため、これ以上のリクエストは物理的に遮断されています。<br>
+        日付が変わると自動的にリセットされます。
+      </p>
+      <button class="modal-btn" id="warning-close-btn">ACKNOWLEDGE</button>
+    </div>
+  </div>
+
+  <!-- API Key Setup Modal -->
+  <div class="modal-overlay" id="api-modal">
+    <div class="cyber-modal" style="border-color: var(--neon-blue); box-shadow: 0 0 30px var(--neon-blue-glow);">
+      <div class="modal-icon" style="color: var(--neon-blue); text-shadow: 0 0 10px var(--neon-blue-glow); animation: none;">🔑</div>
+      <h3 class="modal-title" style="color: #fff;">Vision API Key Config</h3>
+      <p class="modal-desc" style="margin-bottom: 16px;">
+        Google Cloud Vision APIのAPIキーを入力してください。<br>
+        (コード内の API_KEY がデフォルト値になります)
+      </p>
+      <input type="text" id="api-key-input" class="api-modal-input" placeholder="AIzaSy...">
+      <div style="display: flex; gap: 12px; justify-content: center;">
+        <button class="modal-btn" id="api-save-btn" style="border-color: var(--neon-blue); color: var(--neon-blue); box-shadow: 0 0 5px var(--neon-blue-glow);">SAVE</button>
+        <button class="modal-btn" id="api-cancel-btn" style="border-color: var(--text-secondary); color: var(--text-secondary); box-shadow: none;">CANCEL</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Script Registration -->
+  <script src="script.js"></script>
+</body>
+</html>
