@@ -410,23 +410,36 @@ function parseAndDisplayResults(apiResponse, scanIndex) {
   }
 
   // 類似画像およびWeb参照ページのデータ取得
+  const fullMatches = webDetection.fullMatchingImages || [];
+  const partialMatches = webDetection.partialMatchingImages || [];
   const similarImages = webDetection.visuallySimilarImages || [];
+  
+  // 重複を避けつつ優先順位の高い画像から最大3つを収集
+  const collectedUrls = new Set();
+  const rawImageAssets = [];
+  
+  const mergeLists = [...fullMatches, ...partialMatches, ...similarImages];
+  for (const img of mergeLists) {
+    if (img && img.url && !collectedUrls.has(img.url)) {
+      collectedUrls.add(img.url);
+      rawImageAssets.push(img);
+      if (rawImageAssets.length >= 3) break;
+    }
+  }
   
   // 切り替え用のアセットリストを作成
   const toggleAssets = [];
-  similarImages.forEach((img, idx) => {
-    if (idx < 3 && img.url) {
-      // 類似の度合いに応じて確信度（%）を減衰させて算出
-      let score = confidenceScore;
-      if (idx === 1) score = Math.max(confidenceScore - 6.5, 45.0);
-      if (idx === 2) score = Math.max(confidenceScore - 14.2, 30.0);
-      
-      toggleAssets.push({
-        url: img.url,
-        confidence: score,
-        title: `Visually Similar Image Source ${idx + 1}`
-      });
-    }
+  rawImageAssets.forEach((img, idx) => {
+    // 類似の度合いに応じて確信度（%）を減衰させて算出
+    let score = confidenceScore;
+    if (idx === 1) score = Math.max(confidenceScore - 6.5, 45.0);
+    if (idx === 2) score = Math.max(confidenceScore - 14.2, 30.0);
+    
+    toggleAssets.push({
+      url: img.url,
+      confidence: score,
+      title: `Visually Similar Image Source ${idx + 1}`
+    });
   });
 
   // A-Frame 3Dホログラフィック演出のアクティベート
