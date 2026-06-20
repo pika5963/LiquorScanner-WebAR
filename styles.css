@@ -70,8 +70,8 @@ body, html {
 /* Top Status Panel */
 .hud-header {
   width: 100%;
-  padding: 20px;
-  background: linear-gradient(180deg, rgba(10, 10, 12, 0.8) 0%, rgba(10, 10, 12, 0) 100%);
+  padding: calc(32px + env(safe-area-inset-top, 20px)) 20px 20px 20px;
+  background: linear-gradient(180deg, rgba(10, 10, 12, 0.9) 0%, rgba(10, 10, 12, 0) 100%);
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -293,7 +293,7 @@ body, html {
   box-shadow: 0 -10px 40px rgba(0, 255, 102, 0.15);
   backdrop-filter: blur(15px);
   -webkit-backdrop-filter: blur(15px);
-  transform: translateY(105%);
+  transform: translateY(130%); /* Pushes card completely out of screen on mobile notches */
   transition: transform 0.5s cubic-bezier(0.19, 1, 0.22, 1);
   z-index: 12;
   pointer-events: auto;
@@ -639,7 +639,7 @@ body, html {
   #ar-card {
     max-width: 480px;
     left: 50%;
-    transform: translate(-50%, 105%);
+    transform: translate(-50%, 130%);
   }
 
   #ar-card.active {
