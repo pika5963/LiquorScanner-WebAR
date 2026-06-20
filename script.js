@@ -413,19 +413,101 @@ function parseAndDisplayResults(apiResponse, scanIndex) {
   const fullMatches = webDetection.fullMatchingImages || [];
   const partialMatches = webDetection.partialMatchingImages || [];
   const similarImages = webDetection.visuallySimilarImages || [];
+  const webPages = webDetection.pagesWithMatchingImages || [];
   
-  // 重複を避けつつ優先順位の高い画像から最大3つを収集
+  // キーワードアレイの作成 (OCRで読んだ銘柄名を小文字化し、スペースや区切り文字で分割)
+  const keywords = [];
+  if (detectedName) {
+    detectedName.toLowerCase().split(/[\s,._\-()（）/]+/).forEach(w => {
+      // 2文字以上の意味のある単語を抽出
+      if (w.trim().length > 1) {
+        keywords.push(w.trim());
+      }
+    });
+  }
+
+  // 画像とそのコンテキスト情報を格納する一時リスト
+  const candidateImages = [];
   const collectedUrls = new Set();
-  const rawImageAssets = [];
-  
-  const mergeLists = [...fullMatches, ...partialMatches, ...similarImages];
-  for (const img of mergeLists) {
+
+  // A-1. 完全一致画像を収集 (基本スコア: 100点)
+  fullMatches.forEach(img => {
     if (img && img.url && !collectedUrls.has(img.url)) {
       collectedUrls.add(img.url);
-      rawImageAssets.push(img);
-      if (rawImageAssets.length >= 3) break;
+      candidateImages.push({ url: img.url, score: 100, pageTitle: "", pageUrl: "" });
     }
+  });
+
+  // A-2. 部分一致画像を収集 (基本スコア: 80点)
+  partialMatches.forEach(img => {
+    if (img && img.url && !collectedUrls.has(img.url)) {
+      collectedUrls.add(img.url);
+      candidateImages.push({ url: img.url, score: 80, pageTitle: "", pageUrl: "" });
+    }
+  });
+
+  // A-3. Webページ情報から紐づく画像を収集し、タイトルやURLのコンテキストをバインド (基本スコア: 70点)
+  webPages.forEach(page => {
+    const pageTitle = page.pageTitle || "";
+    const pageUrl = page.url || "";
+    const imgs = [...(page.fullMatchingImages || []), ...(page.partialMatchingImages || [])];
+    
+    imgs.forEach(img => {
+      if (img && img.url) {
+        const existing = candidateImages.find(c => c.url === img.url);
+        if (existing) {
+          existing.pageTitle = pageTitle;
+          existing.pageUrl = pageUrl;
+        } else if (!collectedUrls.has(img.url)) {
+          collectedUrls.add(img.url);
+          candidateImages.push({
+            url: img.url,
+            score: 70,
+            pageTitle: pageTitle,
+            pageUrl: pageUrl
+          });
+        }
+      }
+    });
+  });
+
+  // A-4. 視覚的類似画像を収集 (基本スコア: 50点)
+  similarImages.forEach(img => {
+    if (img && img.url && !collectedUrls.has(img.url)) {
+      collectedUrls.add(img.url);
+      candidateImages.push({ url: img.url, score: 50, pageTitle: "", pageUrl: "" });
+    }
+  });
+
+  // B. 検出文字（キーワード）によるスコアの重み付け加算（ブースト）
+  if (keywords.length > 0) {
+    candidateImages.forEach(img => {
+      const urlLower = img.url.toLowerCase();
+      const titleLower = img.pageTitle.toLowerCase();
+      const pageUrlLower = img.pageUrl.toLowerCase();
+      
+      keywords.forEach(keyword => {
+        // 画像のURLそのものにキーワードが含まれている場合: +300点
+        if (urlLower.includes(keyword)) {
+          img.score += 300;
+        }
+        // 画像が掲載されているWebページのタイトルにキーワードが含まれている場合: +200点
+        if (titleLower.includes(keyword)) {
+          img.score += 200;
+        }
+        // WebページのURLにキーワードが含まれている場合: +100点
+        if (pageUrlLower.includes(keyword)) {
+          img.score += 100;
+        }
+      });
+    });
   }
+
+  // C. スコアの降順（高い順）にソート
+  candidateImages.sort((a, b) => b.score - a.score);
+  
+  // D. 上位最大3枚のアセットを抽出
+  const rawImageAssets = candidateImages.slice(0, 3);
   
   // 切り替え用のアセットリストを作成
   const toggleAssets = [];
