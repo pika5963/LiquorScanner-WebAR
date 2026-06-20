@@ -373,21 +373,99 @@ body, html {
   margin-top: 4px;
 }
 
-.web-link {
+.web-link-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+  border-bottom: 1px dashed rgba(255, 255, 255, 0.1);
+  padding: 6px 0;
+  gap: 12px;
+}
+
+.web-link-btn {
+  background: none;
+  border: none;
+  font-family: var(--font-sans);
   font-size: 0.85rem;
   color: var(--neon-blue);
-  text-decoration: none;
+  text-align: left;
+  cursor: pointer;
+  outline: none;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  display: block;
-  border-bottom: 1px dashed rgba(0, 240, 255, 0.2);
-  padding-bottom: 2px;
+  flex-grow: 1;
+  transition: all 0.2s ease;
 }
 
-.web-link:hover {
+.web-link-btn:hover {
   color: var(--text-primary);
-  border-bottom-color: var(--text-primary);
+  text-shadow: 0 0 5px var(--neon-blue-glow);
+}
+
+.web-link-btn.active {
+  color: var(--neon-green);
+  font-weight: 600;
+  text-shadow: 0 0 5px var(--neon-green-glow);
+}
+
+.web-link-icon-btn {
+  color: var(--text-secondary);
+  text-decoration: none;
+  font-family: var(--font-cyber);
+  font-size: 0.9rem;
+  font-weight: bold;
+  padding: 4px 8px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  transition: all 0.2s ease;
+}
+
+.web-link-icon-btn:hover {
+  color: var(--neon-blue);
+  background: rgba(0, 240, 255, 0.1);
+  border-color: var(--neon-blue);
+  box-shadow: 0 0 8px var(--neon-blue-glow);
+}
+
+/* Dynamic Thumbnail Image from Vision API */
+#card-image-container {
+  position: relative;
+  width: 100%;
+  height: 140px;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid rgba(0, 255, 102, 0.3);
+  background-color: rgba(0, 0, 0, 0.4);
+  display: none; /* Controlled via JS */
+  margin-top: 8px;
+}
+
+#card-image-container img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: opacity 0.2s ease-in-out;
+}
+
+#card-image-container img.fade-out {
+  opacity: 0;
+}
+
+.img-source-badge {
+  position: absolute;
+  bottom: 8px;
+  left: 8px;
+  background: rgba(10, 10, 12, 0.75);
+  border: 1px solid rgba(0, 240, 255, 0.3);
+  color: var(--neon-blue);
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+  padding: 2px 6px;
+  border-radius: 3px;
+  letter-spacing: 1px;
 }
 
 /* Modals & Dialogs (Cyberpunk Style) */

@@ -28,12 +28,15 @@ const scannerHud = document.getElementById('scanner-hud');
 const arCard = document.getElementById('ar-card');
 const cardCloseBtn = document.getElementById('card-close');
 const scanCountVal = document.getElementById('scan-count-val');
+const holoRing = document.getElementById('holo-ring');
 
 // カード内の要素
 const detectedNameEl = document.getElementById('detected-name');
 const detectedConfidenceEl = document.getElementById('detected-confidence');
-const cardScanIndexEl = document.getElementById('card-scan-index');
+const cardMatchMethodEl = document.getElementById('card-match-method');
 const webLinksContainer = document.getElementById('web-links');
+const cardImageContainer = document.getElementById('card-image-container');
+const detectedImg = document.getElementById('detected-img');
 
 // モーダル要素
 const warningModal = document.getElementById('warning-modal');
@@ -212,6 +215,9 @@ async function sendScanToVisionAPI(base64Image) {
         },
         features: [
           {
+            type: "TEXT_DETECTION"
+          },
+          {
             type: "WEB_DETECTION",
             maxResults: 8
           }
@@ -253,6 +259,12 @@ async function executeScan() {
   // 2. UIをスキャン中状態へ移行
   setScanningState(true);
   closeArCard();
+  
+  // 3D演出を初期化
+  if (holoRing) {
+    holoRing.setAttribute('visible', 'false');
+    holoRing.setAttribute('scale', '0 0 0');
+  }
 
   try {
     // 3. Canvasから画像フレームの切り出し
@@ -295,46 +307,79 @@ function setScanningState(isScanning) {
 }
 
 /**
+ * テキストを1文字ずつタイピング表示する演出
+ */
+function typeWriter(element, text, speed = 35) {
+  element.textContent = "";
+  let i = 0;
+  
+  if (element.typingInterval) {
+    clearInterval(element.typingInterval);
+  }
+  
+  element.typingInterval = setInterval(() => {
+    if (i < text.length) {
+      element.textContent += text.charAt(i);
+      i++;
+    } else {
+      clearInterval(element.typingInterval);
+      element.typingInterval = null;
+    }
+  }, speed);
+}
+
+/**
  * Google Cloud Vision APIのレスポンス結果をパースしてARカードに展開
  */
 function parseAndDisplayResults(apiResponse, scanIndex) {
   const annotations = apiResponse.responses?.[0];
+  const textAnnotations = annotations?.textAnnotations || [];
   const webDetection = annotations?.webDetection;
 
-  // データが何も取得できなかった場合
-  if (!webDetection || (!webDetection.webEntities && !webDetection.bestGuessLabels)) {
-    displayFailure("対象物を識別できませんでした");
-    return;
-  }
-
-  // 最も確率の高い名前を決定
-  // 1. 検出された最良推測ラベルを最優先
-  // 2. なければWebエンティティの先頭のdescriptionを取得
   let detectedName = "";
   let confidenceScore = 0;
+  let isOcrMatch = false;
 
-  if (webDetection.bestGuessLabels && webDetection.bestGuessLabels.length > 0) {
-    detectedName = webDetection.bestGuessLabels[0].label;
+  // 1. 文字検出結果 (TEXT_DETECTION) を最優先で評価 (Pythonistaの挙動)
+  if (textAnnotations.length > 0 && textAnnotations[0].description) {
+    const rawText = textAnnotations[0].description;
+    // 改行文字をスペースに置き換え、前後の不要な空白をトリミング
+    detectedName = rawText.replace(/\n/g, ' ').trim();
+    
+    // 長すぎる文字列は最初の40文字にカットしてプレビューを保護
+    if (detectedName.length > 40) {
+      detectedName = detectedName.substring(0, 40) + "...";
+    }
+    
+    // テキスト検出成功時は高い基準確信度を設定
+    confidenceScore = 95.0;
+    isOcrMatch = true;
   }
 
-  // Webエンティティのリストをパースして類似リンクやより詳細な名前を補完
-  const entities = webDetection.webEntities || [];
-  
-  if (!detectedName && entities.length > 0) {
-    detectedName = entities[0].description;
+  // 2. 文字が検出されなかった場合のみウェブ検出 (WEB_DETECTION) で推測
+  if (!detectedName && webDetection) {
+    if (webDetection.bestGuessLabels && webDetection.bestGuessLabels.length > 0) {
+      detectedName = webDetection.bestGuessLabels[0].label;
+    }
+
+    const entities = webDetection.webEntities || [];
+    
+    if (!detectedName && entities.length > 0) {
+      detectedName = entities[0].description;
+    }
+
+    // ウェブ検出スコアから確信度を算出
+    if (entities.length > 0) {
+      const matchedEntity = entities.find(e => e.description && e.description.toLowerCase() === detectedName.toLowerCase()) || entities[0];
+      confidenceScore = matchedEntity.score ? Math.min(Math.round(matchedEntity.score * 100), 99.9) : 85.0;
+    } else {
+      confidenceScore = 75.0;
+    }
   }
 
-  // 確信度の算出 (Webエンティティのscoreを利用)
-  if (entities.length > 0) {
-    const matchedEntity = entities.find(e => e.description && e.description.toLowerCase() === detectedName.toLowerCase()) || entities[0];
-    // WebDetectionのスコアは確信度とは定義が異なりますが、デザイン上100%基準の数値として近似表現します
-    confidenceScore = matchedEntity.score ? Math.min(Math.round(matchedEntity.score * 100), 99.9) : 85.0;
-  } else {
-    confidenceScore = 75.0; // bestGuessLabelのみの場合のフォールバック
-  }
-
+  // 3. どちらのモードでも名前が特定できなかった場合
   if (!detectedName) {
-    displayFailure("対象物の名称を特定できませんでした");
+    displayFailure("対象物を識別できませんでした");
     return;
   }
 
@@ -349,48 +394,131 @@ function parseAndDisplayResults(apiResponse, scanIndex) {
   }
   */
 
-  // ARカードのデータ設定
-  detectedNameEl.textContent = detectedName;
+  // ARカードのデータ設定 (タイピング演出を適用)
+  typeWriter(detectedNameEl, detectedName, 35);
   detectedConfidenceEl.textContent = `${confidenceScore.toFixed(2)}%`;
-  cardScanIndexEl.textContent = `#${String(scanIndex).padStart(2, '0')}`;
+  
+  // 解析方式 (Match Method) の設定とカラー指定
+  if (cardMatchMethodEl) {
+    if (isOcrMatch) {
+      cardMatchMethodEl.textContent = "TEXT OCR";
+      cardMatchMethodEl.style.color = "var(--neon-blue)";
+    } else {
+      cardMatchMethodEl.textContent = "VISUAL AI";
+      cardMatchMethodEl.style.color = "var(--neon-green)";
+    }
+  }
 
-  // 関連Webリンクの生成
-  webLinksContainer.innerHTML = "";
-  const maxLinks = 3;
-  let linksAdded = 0;
-
-  // 類似画像やソースURLから関連リンクを生成
-  const webPages = webDetection.pagesWithMatchingImages || [];
+  // 類似画像およびWeb参照ページのデータ取得
   const similarImages = webDetection.visuallySimilarImages || [];
+  
+  // 切り替え用のアセットリストを作成
+  const toggleAssets = [];
+  similarImages.forEach((img, idx) => {
+    if (idx < 3 && img.url) {
+      // 類似の度合いに応じて確信度（%）を減衰させて算出
+      let score = confidenceScore;
+      if (idx === 1) score = Math.max(confidenceScore - 6.5, 45.0);
+      if (idx === 2) score = Math.max(confidenceScore - 14.2, 30.0);
+      
+      toggleAssets.push({
+        url: img.url,
+        confidence: score,
+        title: `Visually Similar Image Source ${idx + 1}`
+      });
+    }
+  });
 
-  const combinedLinks = [
-    ...webPages.map(p => ({ url: p.url, title: p.pageTitle || 'Matching Source Page' })),
-    ...similarImages.map(img => ({ url: img.url, title: 'Visually Similar Image Source' }))
-  ];
+  // A-Frame 3Dホログラフィック演出のアクティベート
+  if (holoRing) {
+    holoRing.setAttribute('visible', 'true');
+    holoRing.setAttribute('animation__scale', 'property: scale; from: 0 0 0; to: 1 1 1; dur: 800; easing: easeOutElastic');
+  }
 
-  if (combinedLinks.length > 0) {
-    combinedLinks.forEach(link => {
-      if (linksAdded < maxLinks && link.url) {
-        const a = document.createElement('a');
-        a.href = link.url;
-        a.target = "_blank";
-        a.rel = "noopener noreferrer";
-        a.className = "web-link";
-        a.textContent = link.title;
-        webLinksContainer.appendChild(a);
-        linksAdded++;
-      }
+  // 関連Webリンク/切り替え項目の生成
+  webLinksContainer.innerHTML = "";
+
+  if (toggleAssets.length > 0) {
+    // 画像切り替えフェード用のイベントハンドラ設定
+    detectedImg.onload = () => {
+      detectedImg.classList.remove('fade-out');
+    };
+    detectedImg.onerror = () => {
+      cardImageContainer.style.display = 'none';
+      detectedImg.src = "";
+    };
+
+    toggleAssets.forEach((asset, idx) => {
+      const row = document.createElement('div');
+      row.className = "web-link-row";
+      
+      // テキストボタン (タップで画像と確信度の切り替え、ページ遷移なし)
+      const btn = document.createElement('button');
+      btn.className = "web-link-btn";
+      if (idx === 0) btn.classList.add('active');
+      btn.textContent = asset.title;
+      btn.type = "button";
+      
+      btn.addEventListener('click', () => {
+        // すべてのボタンのアクティブクラスを除去
+        const allBtns = webLinksContainer.querySelectorAll('.web-link-btn');
+        allBtns.forEach(b => b.classList.remove('active'));
+        
+        // 選択されたボタンをアクティブにする
+        btn.classList.add('active');
+        
+        // フェードアウト効果を挟んで画像と数値を切り替え
+        detectedImg.classList.add('fade-out');
+        setTimeout(() => {
+          detectedImg.src = asset.url;
+          detectedConfidenceEl.textContent = `${asset.confidence.toFixed(2)}%`;
+          cardImageContainer.style.display = 'block'; // エラーハンドリングで消えた場合のための再表示
+        }, 200);
+      });
+      
+      // 外部リンクアイコンリンク (↗タップ時に別ページへ遷移)
+      const linkIcon = document.createElement('a');
+      linkIcon.href = asset.url;
+      linkIcon.target = "_blank";
+      linkIcon.rel = "noopener noreferrer";
+      linkIcon.className = "web-link-icon-btn";
+      linkIcon.textContent = "↗";
+      linkIcon.title = "画像を新しいタブで開く";
+      
+      row.appendChild(btn);
+      row.appendChild(linkIcon);
+      webLinksContainer.appendChild(row);
     });
+
+    // 初期表示設定 (1枚目を表示)
+    detectedImg.src = toggleAssets[0].url;
+    cardImageContainer.style.display = 'block';
+    detectedConfidenceEl.textContent = `${toggleAssets[0].confidence.toFixed(2)}%`;
   } else {
-    // リンクがない場合は検索用のGoogle検索URLを代わりに提供
+    // 類似画像が見つからなかった場合のフォールバック (Google検索リンクを表示)
+    cardImageContainer.style.display = 'none';
+    detectedImg.src = "";
+    detectedConfidenceEl.textContent = `${confidenceScore.toFixed(2)}%`;
+
     const searchUrl = `https://www.google.com/search?q=${encodeURIComponent(detectedName)}`;
-    const a = document.createElement('a');
-    a.href = searchUrl;
-    a.target = "_blank";
-    a.rel = "noopener noreferrer";
-    a.className = "web-link";
-    a.textContent = `Search on Google: "${detectedName}"`;
-    webLinksContainer.appendChild(a);
+    const row = document.createElement('div');
+    row.className = "web-link-row";
+    
+    const btn = document.createElement('button');
+    btn.className = "web-link-btn active";
+    btn.textContent = `Search on Google: "${detectedName}"`;
+    btn.type = "button";
+    
+    const linkIcon = document.createElement('a');
+    linkIcon.href = searchUrl;
+    linkIcon.target = "_blank";
+    linkIcon.rel = "noopener noreferrer";
+    linkIcon.className = "web-link-icon-btn";
+    linkIcon.textContent = "↗";
+    
+    row.appendChild(btn);
+    row.appendChild(linkIcon);
+    webLinksContainer.appendChild(row);
   }
 
   // カードをスライドイン
@@ -401,8 +529,14 @@ function parseAndDisplayResults(apiResponse, scanIndex) {
  * 識別失敗時の表示
  */
 function displayFailure(message) {
-  detectedNameEl.textContent = message;
+  typeWriter(detectedNameEl, message, 35);
   detectedConfidenceEl.textContent = "0.00%";
+  
+  if (cardMatchMethodEl) {
+    cardMatchMethodEl.textContent = "FAILED";
+    cardMatchMethodEl.style.color = "var(--neon-red)";
+  }
+  
   webLinksContainer.innerHTML = `<span style="color: var(--text-secondary); font-size: 0.8rem;">結果が見つかりませんでした。別の角度からお試しください。</span>`;
   openArCard();
 }
@@ -416,6 +550,22 @@ function openArCard() {
 
 function closeArCard() {
   arCard.classList.remove('active');
+  
+  // 3Dホログラフィック演出のフェードアウト
+  if (holoRing) {
+    holoRing.setAttribute('animation__scale', 'property: scale; from: 1 1 1; to: 0 0 0; dur: 400; easing: easeInBack');
+    setTimeout(() => {
+      holoRing.setAttribute('visible', 'false');
+    }, 400);
+  }
+
+  // 類似画像のクリア
+  if (detectedImg) {
+    detectedImg.src = "";
+  }
+  if (cardImageContainer) {
+    cardImageContainer.style.display = 'none';
+  }
 }
 
 /**
